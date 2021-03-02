@@ -27,10 +27,13 @@ private:
 			}
 		}
 	};
+public:
+	using ptr = std::unique_ptr<T, typename PoolReturner>;
 
+private:
 	PoolReturner m_returner;
 	std::vector<T> m_pool;
-	std::vector<std::unique_ptr<T, PoolReturner>> m_reusables;
+	std::vector<ptr> m_reusables;
 	std::shared_ptr<ObjectPool*> m_aliveFlagPtr;
 
 public:
@@ -49,7 +52,7 @@ public:
 	virtual ~ObjectPool() {}
 
 	template<class... Args> requires objectPoolConcepts::Resetable<T, Args...>
-	std::unique_ptr<T, PoolReturner> acquire(Args&& ... args) {
+	ptr acquire(Args&& ... args) {
 		if (auto reusable = acquire(); reusable != nullptr) {
 			reusable->reset(std::forward<Args>(args)...);
 			return reusable;
@@ -58,7 +61,7 @@ public:
 	}
 
 	template<class... Args>
-	std::unique_ptr<T, PoolReturner> acquire(Args&& ... args) {
+	ptr acquire(Args&& ... args) {
 		if (m_reusables.empty()) {
 			return nullptr;
 		}
@@ -100,3 +103,6 @@ private:
 		m_reusables.emplace_back(reusable);
 	}
 };
+
+template<class T>
+using unique_ptr_pool = typename ObjectPool<T>::ptr;
