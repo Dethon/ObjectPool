@@ -10,9 +10,6 @@ namespace objectPoolConcepts {
 		{obj.reset(std::declval<Args...>())};
 	};
 }
-struct EmptyPool : public std::bad_alloc {
-	const char* what() const noexcept override { return "ObjectPool is empty"; }
-};
 
 template<class T>
 class ObjectPool {
@@ -46,37 +43,42 @@ public:
 	ObjectPool(size_t size, Args&& ... args) {
 		m_aliveFlagPtr = std::make_shared<ObjectPool*>(this);
 		m_returner = PoolReturner{ m_aliveFlagPtr };
-		upsize(size, std::forward<Args>(args)...);
+		resize(size, std::forward<Args>(args)...);
 	}
 
 	virtual ~ObjectPool() {}
 
 	template<class... Args> requires objectPoolConcepts::Resetable<T, Args...>
 	std::unique_ptr<T, PoolReturner> acquire(Args&& ... args) {
-		auto reusable = acquire();
-		reusable->reset(std::forward<Args>(args)...);
-		return reusable;
+		if (auto reusable = acquire(); reusable != nullptr) {
+			reusable->reset(std::forward<Args>(args)...);
+			return reusable;
+		}
+		return nullptr;
 	}
 
 	template<class... Args>
 	std::unique_ptr<T, PoolReturner> acquire(Args&& ... args) {
 		if (m_reusables.empty()) {
-			throw EmptyPool();
+			return nullptr;
 		}
 		auto reusable = std::move(m_reusables.back());
 		m_reusables.pop_back();
 		return reusable;
  	}
 
-	template<class... Args>
+	template<class... Args> requires std::constructible_from<T, Args...>
 	bool resize(size_t newsize, Args&& ... args) {
-		if (amountAvailable() == size()) {
-			if (size() > newsize) {
-				return downsize(newsize);
+		if (!isBeingUsed()) {
+			m_pool.resize(newsize, std::forward<Args>(args)...);
+			m_reusables.clear();
+			m_reusables.reserve(newsize);
+			for (auto& element : m_pool) {
+				m_reusables.emplace_back(&element, m_returner);
 			}
-			else if (size() < newsize) {
-				return upsize(newsize, std::forward<Args>(args)...);
-			}
+			m_pool.shrink_to_fit();
+			m_reusables.shrink_to_fit();
+			return true;
 		}
 		return false;
 	}
@@ -89,27 +91,11 @@ public:
 		return m_pool.size();
 	}
 
+	bool isBeingUsed() {
+		return amountAvailable() != size();
+	}
+
 private:
-	bool downsize(size_t newsize) {
-		m_reusables.resize(newsize);
-		m_pool.resize(newsize);
-		return true;
-	}
-
-	template<class... Args> requires std::constructible_from<T, Args...>
-	bool upsize(size_t newsize, Args&& ... args) {
-		m_pool.reserve(newsize);
-		m_reusables.reserve(newsize);
-		m_reusables.clear();
-		for (auto i = size(); i < newsize; i++) {
-			m_pool.emplace_back(std::forward<Args>(args)...);
-		}
-		for (auto& element : m_pool) {
-			m_reusables.emplace_back(&element, m_returner);
-		}
-		return true;
-	}
-
 	void release(T* reusable)  {
 		m_reusables.emplace_back(reusable);
 	}
