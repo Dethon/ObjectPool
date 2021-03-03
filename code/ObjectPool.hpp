@@ -92,8 +92,6 @@ namespace obpool {
 				for (auto& element : m_pool) {
 					m_reusables.emplace_back(&element, m_returner);
 				}
-				m_pool.shrink_to_fit();
-				m_reusables.shrink_to_fit();
 				return true;
 			}
 			return false;
