@@ -24,7 +24,7 @@ namespace obpool {
 		private:
 			std::weak_ptr<ObjectPool<T>*> m_pool;
 		public:
-			PoolReturner(std::weak_ptr<ObjectPool<T>*> pool) : m_pool(pool) {}
+			PoolReturner(std::weak_ptr<ObjectPool<T>*> pool) : m_pool{ pool } {}
 			void operator()(T* ptr) {
 				if (auto pool_ptr = m_pool.lock(); pool_ptr) {
 					(*pool_ptr)->release(ptr);
@@ -40,10 +40,10 @@ namespace obpool {
 		///////////////////////////////
 
 	private:
+		PoolReturner m_returner;
+		std::shared_ptr<ObjectPool<T>*> m_aliveFlagPtr;
 		std::vector<T> m_pool;
 		std::vector<ptr> m_reusables;
-		std::shared_ptr<ObjectPool<T>*> m_aliveFlagPtr{ std::make_shared<ObjectPool<T>*>(this) };
-		PoolReturner m_returner{ m_aliveFlagPtr };
 
 	public:
 		ObjectPool(const ObjectPool<T>&) = delete;
@@ -52,10 +52,14 @@ namespace obpool {
 		ObjectPool<T>& operator=(ObjectPool<T>&&) = delete;
 
 		template<class... Args> requires std::constructible_from<T, Args...>
-		ObjectPool(size_t size, Args&& ... args) {
+		ObjectPool(size_t size, Args&& ... args) : m_returner{ {} } {
+			m_aliveFlagPtr = std::make_shared<ObjectPool<T>*>(this);
+			m_returner = PoolReturner{ m_aliveFlagPtr };
 			resize(size, std::forward<Args>(args)...);
 		}
-		virtual ~ObjectPool() {}
+		virtual ~ObjectPool() {
+			m_aliveFlagPtr.reset();
+		}
 
 		template<class... Args> requires concepts::Resetable<T, Args...>
 		ptr acquire(Args&& ... args) {
@@ -96,15 +100,15 @@ namespace obpool {
 			return false;
 		}
 
-		size_t amountAvailable() noexcept {
+		size_t amountAvailable() const noexcept {
 			return m_reusables.size();
 		}
 
-		size_t size() noexcept {
+		size_t size() const noexcept {
 			return m_pool.size();
 		}
 
-		bool isBeingUsed() {
+		bool isBeingUsed() const noexcept {
 			return amountAvailable() != size();
 		}
 
