@@ -24,7 +24,6 @@ namespace obpool {
 		private:
 			std::weak_ptr<ObjectPool<T>*> m_pool;
 		public:
-			PoolReturner() {}
 			PoolReturner(std::weak_ptr<ObjectPool<T>*> pool) : m_pool(pool) {}
 			void operator()(T* ptr) {
 				if (auto pool_ptr = m_pool.lock(); pool_ptr) {
@@ -41,10 +40,10 @@ namespace obpool {
 		///////////////////////////////
 
 	private:
-		PoolReturner m_returner;
 		std::vector<T> m_pool;
 		std::vector<ptr> m_reusables;
-		std::shared_ptr<ObjectPool*> m_aliveFlagPtr;
+		std::shared_ptr<ObjectPool<T>*> m_aliveFlagPtr{ std::make_shared<ObjectPool<T>*>(this) };
+		PoolReturner m_returner{ m_aliveFlagPtr };
 
 	public:
 		ObjectPool(const ObjectPool<T>&) = delete;
@@ -54,8 +53,6 @@ namespace obpool {
 
 		template<class... Args> requires std::constructible_from<T, Args...>
 		ObjectPool(size_t size, Args&& ... args) {
-			m_aliveFlagPtr = std::make_shared<ObjectPool*>(this);
-			m_returner = PoolReturner{ m_aliveFlagPtr };
 			resize(size, std::forward<Args>(args)...);
 		}
 		virtual ~ObjectPool() {}
@@ -66,13 +63,15 @@ namespace obpool {
 				reusable->reset(std::forward<Args>(args)...);
 				return reusable;
 			}
-			return nullptr;
+			else {
+				return reusable;
+			}
 		}
 
 		template<class... Args>
 		ptr acquire(Args&& ... args) {
 			if (m_reusables.empty()) {
-				return nullptr;
+				return { nullptr, m_returner };
 			}
 			auto reusable = std::move(m_reusables.back());
 			m_reusables.pop_back();
@@ -111,7 +110,7 @@ namespace obpool {
 
 	private:
 		void release(T* reusable) {
-			m_reusables.emplace_back(reusable);
+			m_reusables.emplace_back(reusable, m_returner);
 		}
 	};
 
