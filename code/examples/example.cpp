@@ -1,6 +1,7 @@
 #include <array>
 #include <vector>
 #include <memory>
+#include <iostream>
 
 #include "../ObjectPool.hpp"
 
@@ -25,23 +26,22 @@ public:
 	int op(int v) {
 		int a = v;
 		for (auto item : m_a) {
-			a *= item;
+			a += item;
 		}
 		return a;
 	}
 };
 
 int main() {
-	auto pool = obpool::ObjectPool<Widget>{ 50000, 1 };
+	auto pool = obpool::ObjectPool<Widget>{ 50, 0 };
 
 	auto vec = std::vector<obpool::unique_ptr_pool<Widget>>{};
-	while (pool.amountAvailable() > 0) {
-		vec.push_back(pool.acquire(5));
-	}
+	vec.push_back(pool.acquire(5));
+	vec.push_back(pool.acquire(7));
 
 	auto result = std::vector<int>{};
 	for (const auto& item : vec) {
-		result.push_back(item->op(10));
+		std::cout << item->op(10) << std::endl;
 	}
 
 	return 0;
