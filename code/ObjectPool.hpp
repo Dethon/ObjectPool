@@ -52,14 +52,12 @@ namespace obpool {
 			if (auto reusable = acquire(); reusable != nullptr) {
 				reusable->reset(std::forward<Args>(args)...);
 				return reusable;
-			}
-			else {
+			} else {
 				return reusable;
 			}
 		}
 
-		template<class... Args>
-		ptr acquire(Args&& ... args) {
+		ptr acquire() {
 			if (m_reusables.empty()) {
 				return { nullptr, m_returner };
 			}
@@ -68,22 +66,40 @@ namespace obpool {
 			return reusable;
 		}
 
+		template<class... Args> requires concepts::Resetable<T, Args...>
+		std::vector<ptr> acquireAmount(size_t size, Args&& ... args) {
+			auto result = acquireAmount(size);
+			for (auto& item : result) {
+				item->reset(std::forward<Args>(args)...);
+			}
+			return result;
+		}
+
+		std::vector<ptr> acquireAmount(size_t size) {
+			if (amountAvailable() < size) {
+				return {};
+			}
+			auto countLeftover = amountAvailable() - size;
+			auto result = std::vector<ptr>{};
+			result.reserve(size);
+			std::move(m_reusables.begin() + countLeftover, m_reusables.end(), std::back_inserter(result));
+			m_reusables.erase(m_reusables.begin() + countLeftover, m_reusables.end());
+
+			return result;
+		}
+
 		template<class... Args> requires std::constructible_from<T, Args...>
 		bool resize(size_t newsize, Args&& ... args) {
-			if (!isBeingUsed()) {
-				m_pool.clear();
-				m_reusables.clear();
-				m_pool.reserve(newsize);
-				m_reusables.reserve(newsize);
-				for (size_t i = 0; i < newsize; i++) {
-					m_pool.emplace_back(std::forward<Args>(args)...);
-				}
-				for (auto& element : m_pool) {
-					m_reusables.emplace_back(&element, m_returner);
-				}
-				return true;
+			if (isBeingUsed()) {
+				return false;
 			}
-			return false;
+			m_pool.resize(newsize, std::forward<Args>(args)...);
+			m_reusables.clear();
+			m_reusables.reserve(newsize);
+			for (auto& element : m_pool) {
+				m_reusables.emplace_back(&element, m_returner);
+			}
+			return true;
 		}
 
 		size_t amountAvailable() const noexcept {
